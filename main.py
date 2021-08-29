@@ -44,7 +44,7 @@ if __name__ == "__main__":
         properties = {}
         children = []
 
-        citekey_matches = re.search(r"Citation Key: (\w*)", item_data["extra"])
+        citekey_matches = re.search(r"Citation Key: (\S*)", item_data["extra"])
         if citekey_matches:
             properties["Citation Key"] = {
                 "title": [{"text": {"content": citekey_matches.group(1)}}]
