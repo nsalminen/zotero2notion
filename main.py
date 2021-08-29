@@ -1,5 +1,6 @@
 import re
 import logging
+import warnings
 from dateutil import parser
 from datetime import datetime
 from pprint import pprint
@@ -7,7 +8,7 @@ from configparser import ConfigParser
 from time import perf_counter
 from notion_client import Client
 from pyzotero import zotero
-
+from tqdm import tqdm
 
 cfg = ConfigParser()
 cfg.read("./config.ini")
@@ -20,16 +21,27 @@ API_KEY = cfg.get("Zotero", "API_KEY")
 
 
 if __name__ == "__main__":
-    notion = Client(auth=TOKEN, log_level=logging.DEBUG)
+    notion = Client(auth=TOKEN)
 
     zot = zotero.Zotero(LIBRARY_ID, LIBRARY_TYPE, API_KEY)
-    zot.add_parameters(sort="dateAdded", direction="desc", limit=20)
-    items = zot.top(limit=5)
+    zot.add_parameters(sort="dateAdded", direction="desc")
+    items = zot.everything(zot.top())
+    print(f"Retrieved {len(items)} Zotero records")
 
-    notion_records = notion.databases.query(**{"database_id": DATABASE_ID})
+    notion_response = notion.databases.query(**{"database_id": DATABASE_ID})
+    notion_records = notion_response["results"]
+    while notion_response["has_more"]:
+        notion_response = notion.databases.query(
+            **{
+                "database_id": DATABASE_ID,
+                "start_cursor": notion_response["next_cursor"],
+            }
+        )
+        notion_records += notion_response["results"]
+    print(f"Retrieved {len(notion_records)} Notion records")
 
     existing_entries = {}
-    for record in notion_records["results"]:
+    for record in notion_records:
         existing_entries[
             record["properties"]["Zotero: Key"]["rich_text"][0]["plain_text"]
         ] = {
@@ -38,7 +50,9 @@ if __name__ == "__main__":
             "citekey": record["properties"]["Citation Key"]["title"][0]["plain_text"],
         }
 
-    for item in items:
+    for item in tqdm(
+        items, desc="Updating Notion records based on Zotero records", unit="record"
+    ):
         item_data = item["data"]
 
         properties = {}
@@ -50,7 +64,9 @@ if __name__ == "__main__":
                 "title": [{"text": {"content": citekey_matches.group(1)}}]
             }
         else:
-            print(item_data)
+            warnings.warn(
+                f"Could not retrieve citation key for entry with title {item_data['title']}"
+            )
 
         properties["Title"] = {
             "rich_text": [{"type": "text", "text": {"content": item_data["title"]}}]
