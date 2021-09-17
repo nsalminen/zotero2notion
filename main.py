@@ -9,6 +9,7 @@ from time import perf_counter
 from notion_client import Client
 from pyzotero import zotero
 from tqdm import tqdm
+import textwrap
 
 cfg = ConfigParser()
 cfg.read("./config.ini")
@@ -47,7 +48,6 @@ if __name__ == "__main__":
         ] = {
             "page_id": record["id"],
             "version": record["properties"]["Zotero: Version"]["number"],
-            "citekey": record["properties"]["Citation Key"]["title"][0]["plain_text"],
         }
 
     for item in tqdm(
@@ -94,8 +94,8 @@ if __name__ == "__main__":
         tags = []
         for tag in item_data["tags"]:
             if (
-                "type" not in tag
-            ):  # It seems like manual tags do not have a type (we filter out automatic tags)
+                "type" not in tag and tag["tag"] != "tablet_"
+            ):  # It seems like manual tags do not have a type. We filter out automatic tags as well as the Zotfile tablet_ tag.
                 tags += [{"name": tag["tag"]}]
         properties["Tags"] = {
             "type": "multi_select",
@@ -139,7 +139,11 @@ if __name__ == "__main__":
                         "text": [
                             {
                                 "type": "text",
-                                "text": {"content": item_data["abstractNote"]},
+                                "text": {
+                                    "content": textwrap.shorten(
+                                        item_data["abstractNote"], width=2000
+                                    )
+                                },
                                 "annotations": {
                                     "bold": False,
                                     "italic": False,
