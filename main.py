@@ -23,13 +23,7 @@ API_KEY = cfg.get("Zotero", "API_KEY")
 
 if __name__ == "__main__":
     notion = Client(auth=TOKEN)
-
-    zot = zotero.Zotero(LIBRARY_ID, LIBRARY_TYPE, API_KEY)
-    zot.add_parameters(sort="dateAdded", direction="desc")
-    items = zot.everything(zot.top())
-    print(f"Retrieved {len(items)} Zotero records")
-
-    notion_response = notion.databases.query(**{"database_id": DATABASE_ID})
+    notion_response = notion.databases.query(**{"database_id": str(DATABASE_ID)})
     notion_records = notion_response["results"]
     while notion_response["has_more"]:
         notion_response = notion.databases.query(
@@ -41,44 +35,51 @@ if __name__ == "__main__":
         notion_records += notion_response["results"]
     print(f"Retrieved {len(notion_records)} Notion records")
 
-    existing_entries = {}
+    zot = zotero.Zotero(LIBRARY_ID, LIBRARY_TYPE, API_KEY)
+    zot.add_parameters(sort="dateAdded", direction="desc")
+    zotero_records = zot.everything(zot.top())
+    print(f"Retrieved {len(zotero_records)} Zotero records")
+
+    existing_records = {}
     for record in notion_records:
-        existing_entries[
+        existing_records[
             record["properties"]["Zotero: Key"]["rich_text"][0]["plain_text"]
         ] = {
             "page_id": record["id"],
             "version": record["properties"]["Zotero: Version"]["number"],
         }
 
-    for item in tqdm(
-        items, desc="Updating Notion records based on Zotero records", unit="record"
+    for record in tqdm(
+        zotero_records,
+        desc="Updating Notion records based on Zotero records",
+        unit="record",
     ):
-        item_data = item["data"]
+        record_data = record["data"]  # record data from Zotero record
 
         properties = {}
         children = []
 
-        citekey_matches = re.search(r"Citation Key: (\S*)", item_data["extra"])
+        citekey_matches = re.search(r"Citation Key: (\S*)", record_data["extra"])
         if citekey_matches:
             properties["Citation Key"] = {
                 "title": [{"text": {"content": citekey_matches.group(1)}}]
             }
         else:
             warnings.warn(
-                f"Could not retrieve citation key for entry with title {item_data['title']}"
+                f"Could not retrieve citation key for entry with title {record_data['title']}"
             )
 
         properties["Title"] = {
-            "rich_text": [{"type": "text", "text": {"content": item_data["title"]}}]
+            "rich_text": [{"type": "text", "text": {"content": record_data["title"]}}]
         }
 
-        if "date" in item_data and item_data["date"]:
+        if "date" in record_data and record_data["date"]:
             properties["Publication Date"] = {
-                "date": {"start": parser.parse(item_data["date"]).isoformat()}
+                "date": {"start": parser.parse(record_data["date"]).isoformat()}
             }
 
         authors = []
-        for creator in item_data["creators"]:
+        for creator in record_data["creators"]:
             if creator["creatorType"] == "author":
                 author_str = ""
                 for key in ["name", "firstName", "middleName", "lastName"]:
@@ -92,9 +93,11 @@ if __name__ == "__main__":
         }
 
         tags = []
-        for tag in item_data["tags"]:
+        for tag in record_data["tags"]:
             if (
-                "type" not in tag and tag["tag"] != "tablet_"
+                "type" not in tag
+                and tag["tag"] != "_tablet"
+                and tag["tag"] != "_tablet_modified"
             ):  # It seems like manual tags do not have a type. We filter out automatic tags as well as the Zotfile tablet_ tag.
                 tags += [{"name": tag["tag"]}]
         properties["Tags"] = {
@@ -103,19 +106,19 @@ if __name__ == "__main__":
         }
 
         properties["Zotero: Key"] = {
-            "rich_text": [{"type": "text", "text": {"content": item_data["key"]}}]
+            "rich_text": [{"type": "text", "text": {"content": record_data["key"]}}]
         }
-        properties["Zotero: Version"] = {"number": item_data["version"]}
+        properties["Zotero: Version"] = {"number": record_data["version"]}
         properties["Zotero: Date Modified"] = {
-            "date": {"start": item_data["dateModified"]}
+            "date": {"start": record_data["dateModified"]}
         }
-        properties["Zotero: Date Added"] = {"date": {"start": item_data["dateAdded"]}}
-        properties["Zotero: Link"] = {"url": item["links"]["alternate"]["href"]}
+        properties["Zotero: Date Added"] = {"date": {"start": record_data["dateAdded"]}}
+        properties["Zotero: Link"] = {"url": record["links"]["alternate"]["href"]}
 
-        if "url" in item_data and item_data["url"]:
-            properties["URL"] = {"url": item_data.get("url")}
+        if "url" in record_data and record_data["url"]:
+            properties["URL"] = {"url": record_data.get("url")}
 
-        if "abstractNote" in item_data:
+        if "abstractNote" in record_data:
             children.append(
                 {
                     "object": "block",
@@ -141,7 +144,7 @@ if __name__ == "__main__":
                                 "type": "text",
                                 "text": {
                                     "content": textwrap.shorten(
-                                        item_data["abstractNote"], width=2000
+                                        record_data["abstractNote"], width=2000
                                     )
                                 },
                                 "annotations": {
@@ -157,14 +160,41 @@ if __name__ == "__main__":
                 }
             )
 
-        # Check if entry already exists in the Notion database. If it does not, we add it. Otherwise, we update it.
-        if item_data["key"] not in existing_entries:
+        # Check if record already exists in the Notion database. If it does not, we add it. Otherwise, we update it.
+        if record_data["key"] not in existing_records:
             notion.pages.create(
                 parent={"database_id": DATABASE_ID},
                 properties=properties,
                 children=children,
             )
-        elif item_data["version"] != existing_entries[item_data["key"]]["version"]:
+        elif record_data["version"] != existing_records[record_data["key"]]["version"]:
             notion.pages.update(
-                existing_entries[item_data["key"]]["page_id"], properties=properties
+                existing_records[record_data["key"]]["page_id"], properties=properties
             )
+
+    # Check if record was deleted from Zotero but still exists in Notion. We mark any Notion records that should be deleted
+    # with an icon and a tag. We do not remove these records automatically, as they may be linked to. Therefore, the user should
+    # first update any links to the Notion entry before it can be safely deleted.
+    keys_in_zotero = set([record["key"] for record in zotero_records])
+    deleted_records = []
+    for key, record in tqdm(
+        existing_records.items(),
+        desc="Checking for deleted Zotero records that exist in Notion",
+        unit="record",
+    ):
+        if key not in keys_in_zotero:
+            deleted_records.append(key)
+            notion.pages.update(
+                record["page_id"],
+                properties={
+                    "Tags": {
+                        "type": "multi_select",
+                        "multi_select": [{"name": "Deleted from Zotero"}],
+                    },
+                },
+                icon={"type": "emoji", "emoji": "❌"},
+            )
+    if deleted_records:
+        print(
+            f"Records to be manually deleted from Notion: {', '.join(deleted_records)} (marked by icon ❌ and tagged \"Deleted from Zotero\")"
+        )
