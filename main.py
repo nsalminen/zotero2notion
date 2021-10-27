@@ -160,7 +160,7 @@ def find_removed_records(notion_client, zotero_records, existing_records):
     ):
         if key not in keys_in_zotero:
             deleted_records.append(key)
-            notion.pages.update(
+            notion_client.pages.update(
                 record["page_id"],
                 properties={
                     "Tags": {
