@@ -1,4 +1,5 @@
 import re
+import sys
 import warnings
 from dateutil import parser
 from configparser import ConfigParser
@@ -19,16 +20,17 @@ def create_post_objects(record):
     properties = {}
     children = []
 
-    citekey_matches = re.search(r"Citation Key: (\S*)", record_data["extra"])
-    if citekey_matches:
+    try:
+        citekey_matches = re.search(r"Citation Key: (\S*)", record_data["extra"])
         properties["Citation Key"] = {
             "title": [{"text": {"content": citekey_matches.group(1)}}]
         }
-    else:
+    except (AttributeError, KeyError) as e:
         warnings.warn(
-            f"Could not retrieve citation key for entry with title {record_data['title']}"
+            f"Could not retrieve citation key for entry with title \"{record_data['title']}\". Do not forget to pin BibTeX keys in Zotero with BetterBibTeX!"
         )
-
+        pass
+    
     properties["Title"] = {
         "rich_text": [{"type": "text", "text": {"content": record_data["title"]}}]
     }
