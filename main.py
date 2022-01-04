@@ -1,5 +1,4 @@
 import re
-import sys
 import warnings
 from dateutil import parser
 from configparser import ConfigParser
@@ -20,6 +19,16 @@ def create_post_objects(record):
     properties = {}
     children = []
 
+    type_emoji = {
+        "journalArticle": "📄",
+        "patent": "💡",
+        "book": "📘",
+        "bookSection": "📖",
+        "conferencePaper": "🧑‍🏫",
+        "thesis": "🎓",
+        "presentation": "💬",
+    }
+
     try:
         citekey_matches = re.search(r"Citation Key: (\S*)", record_data["extra"])
         properties["Citation Key"] = {
@@ -30,7 +39,7 @@ def create_post_objects(record):
             f"Could not retrieve citation key for entry with title \"{record_data['title']}\". Do not forget to pin BibTeX keys in Zotero with BetterBibTeX!"
         )
         pass
-    
+
     properties["Title"] = {
         "rich_text": [{"type": "text", "text": {"content": record_data["title"]}}]
     }
@@ -121,7 +130,8 @@ def create_post_objects(record):
                 },
             }
         )
-    return properties, children
+
+    return properties, children, type_emoji.get(record_data["itemType"], "📝")
 
 
 def get_existing_notion_records(notion_records):
@@ -235,20 +245,22 @@ def process_records(zotero_records, notion_records, notion_client):
     ):
         # Check if record already exists in the Notion database. If it does not, we add it. Otherwise, we update it.
         if record["data"]["key"] not in existing_records:
-            properties, children = create_post_objects(record)
+            properties, children, emoji = create_post_objects(record)
             notion_client.pages.create(
                 parent={"database_id": notion_db_id},
                 properties=properties,
                 children=children,
+                icon={"type": "emoji", "emoji": emoji},
             )
         elif (
             record["data"]["version"]
             != existing_records[record["data"]["key"]]["version"]
         ):
-            properties, children = create_post_objects(record)
+            properties, children, emoji = create_post_objects(record)
             notion_client.pages.update(
                 existing_records[record["data"]["key"]]["page_id"],
                 properties=properties,
+                icon={"type": "emoji", "emoji": emoji},
             )
 
     find_removed_records(notion_client, zotero_records, existing_records)
