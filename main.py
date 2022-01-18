@@ -51,26 +51,24 @@ def create_post_objects(record):
         }
 
     authors = []
-    for creator in record_data["creators"]:
-        if creator["creatorType"] == "author":
-            author_str = ""
-            for key in ["name", "firstName", "middleName", "lastName"]:
-                if key in creator:
-                    author_str += creator[key]
-                    author_str += " " if key != "lastName" else ""
-            authors += [{"name": author_str}]
-    properties["Authors"] = {
-        "type": "multi_select",
-        "multi_select": authors,
-    }
+    if "creator" in record_data:
+        for creator in record_data["creators"]:
+            if creator["creatorType"] == "author":
+                author_str = ""
+                for key in ["name", "firstName", "middleName", "lastName"]:
+                    if key in creator:
+                        author_str += creator[key]
+                        author_str += " " if key != "lastName" else ""
+                authors += [{"name": author_str}]
+        properties["Authors"] = {
+            "type": "multi_select",
+            "multi_select": authors,
+        }
 
     tags = []
     for tag in record_data["tags"]:
-        if (
-            "type" not in tag
-            and tag["tag"] != "_tablet"
-            and tag["tag"] != "_tablet_modified"
-        ):  # It seems like manual tags do not have a type. We filter out automatic tags as well as the Zotfile tablet_ tag.
+        # It seems like manual tags do not have a type. We filter out automatic tags.
+        if "type" not in tag:
             tags += [{"name": tag["tag"]}]
     properties["Tags"] = {
         "type": "multi_select",
