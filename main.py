@@ -27,6 +27,7 @@ def create_post_objects(record):
         "conferencePaper": "🧑‍🏫",
         "thesis": "🎓",
         "presentation": "💬",
+        "webPage": "🌐",
     }
 
     try:
