@@ -51,7 +51,7 @@ def create_post_objects(record):
         }
 
     authors = []
-    if "creator" in record_data:
+    if "creators" in record_data:
         for creator in record_data["creators"]:
             if creator["creatorType"] == "author":
                 author_str = ""
