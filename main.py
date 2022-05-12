@@ -8,7 +8,7 @@ from tqdm import tqdm
 import textwrap
 
 
-def create_post_objects(record):
+def create_post_objects(record, zotero_collections):
     """Create objects for Notion POST message, which will create a Notion record based on the given Zotero record.
 
     Args:
@@ -73,6 +73,19 @@ def create_post_objects(record):
     properties["Tags"] = {
         "type": "multi_select",
         "multi_select": tags,
+    }
+
+    collections = []
+    for collection_key in record_data["collections"]:
+        collection_search_result = list(
+            filter(lambda person: person["key"] == collection_key, zotero_collections)
+        )
+        if len(collection_search_result):
+            collections += [{"name": collection_search_result[0]["data"]["name"]}]
+
+    properties["Collections"] = {
+        "type": "multi_select",
+        "multi_select": collections,
     }
 
     properties["Zotero: Key"] = {
@@ -211,7 +224,7 @@ def get_notion_records(notion_client, notion_token, notion_db_id):
     return notion_records
 
 
-def get_zotero_records(zotero_library_id, zotero_library_type, zotero_api_key):
+def get_zotero_records(zot):
     """Retrieve Zotero records through Zotero API.
 
     Args:
@@ -219,14 +232,13 @@ def get_zotero_records(zotero_library_id, zotero_library_type, zotero_api_key):
         zotero_library_type: Zotero library type (typically "user")
         zotero_api_key: Zotero API key
     """
-    zot = zotero.Zotero(zotero_library_id, zotero_library_type, zotero_api_key)
-    zot.add_parameters(sort="dateAdded", direction="desc")
-    zotero_records = zot.everything(zot.top())
+    zotero_client.add_parameters(sort="dateAdded", direction="desc")
+    zotero_records = zotero_client.everything(zot.top())
     print(f"Retrieved {len(zotero_records)} Zotero records")
     return zotero_records
 
 
-def process_records(zotero_records, notion_records, notion_client):
+def process_records(zotero_records, zotero_client, notion_records, notion_client):
     """Process records by submitting new records to Notion, based on the given Zotero records.
 
     Args:
@@ -237,6 +249,9 @@ def process_records(zotero_records, notion_records, notion_client):
     # Get Zotero keys of records that exist in Notion.
     existing_records = get_existing_notion_records(notion_records)
 
+    # Get Zotero collections
+    zotero_collections = zotero_client.collections()
+
     for record in tqdm(
         zotero_records,
         desc="Updating Notion records based on Zotero records",
@@ -244,7 +259,9 @@ def process_records(zotero_records, notion_records, notion_client):
     ):
         # Check if record already exists in the Notion database. If it does not, we add it. Otherwise, we update it.
         if record["data"]["key"] not in existing_records:
-            properties, children, emoji = create_post_objects(record)
+            properties, children, emoji = create_post_objects(
+                record, zotero_collections
+            )
             notion_client.pages.create(
                 parent={"database_id": notion_db_id},
                 properties=properties,
@@ -255,7 +272,9 @@ def process_records(zotero_records, notion_records, notion_client):
             record["data"]["version"]
             != existing_records[record["data"]["key"]]["version"]
         ):
-            properties, children, emoji = create_post_objects(record)
+            properties, children, emoji = create_post_objects(
+                record, zotero_collections
+            )
             notion_client.pages.update(
                 existing_records[record["data"]["key"]]["page_id"],
                 properties=properties,
@@ -275,10 +294,11 @@ if __name__ == "__main__":
     zotero_library_id = int(cfg.get("Zotero", "LIBRARY_ID"))
     zotero_library_type = cfg.get("Zotero", "LIBRARY_TYPE")
     zotero_api_key = cfg.get("Zotero", "API_KEY")
-
-    notion_records = get_notion_records(notion_client, notion_token, notion_db_id)
-    zotero_records = get_zotero_records(
+    zotero_client = zotero.Zotero(
         zotero_library_id, zotero_library_type, zotero_api_key
     )
 
-    process_records(zotero_records, notion_records, notion_client)
+    notion_records = get_notion_records(notion_client, notion_token, notion_db_id)
+    zotero_records = get_zotero_records(zotero_client)
+
+    process_records(zotero_records, zotero_client, notion_records, notion_client)
