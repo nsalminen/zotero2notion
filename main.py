@@ -107,7 +107,7 @@ def create_post_objects(record, zotero_collections):
                 "object": "block",
                 "type": "heading_2",
                 "heading_2": {
-                    "text": [
+                    "rich_text": [
                         {
                             "type": "text",
                             "text": {"content": "Abstract"},
@@ -122,7 +122,7 @@ def create_post_objects(record, zotero_collections):
                 "object": "block",
                 "type": "paragraph",
                 "paragraph": {
-                    "text": [
+                    "rich_text": [
                         {
                             "type": "text",
                             "text": {
